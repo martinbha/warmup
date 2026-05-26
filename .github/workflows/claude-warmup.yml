@@ -1,0 +1,72 @@
+name: Claude Warmup
+
+on:
+  schedule:
+    # GitHub cron is UTC. This is 7:00 AM Korea Standard Time, Monday-Friday.
+    - cron: "0 22 * * 0-4"
+  workflow_dispatch: {}
+
+concurrency:
+  group: claude-warmup
+  cancel-in-progress: true
+
+jobs:
+  warmup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check required secret
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+            echo "Missing CLAUDE_OAUTH_TOKEN."
+            echo "Create it in this repo under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@latest
+
+      - name: Send warmup prompt
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$HOME/.claude"
+          printf '%s\n' '{"hasCompletedOnboarding":true}' > "$HOME/.claude.json"
+
+          log_file="$(mktemp)"
+
+          set +e
+          claude -p "Reply with exactly: ok" \
+            --model haiku \
+            --no-session-persistence \
+            >"$log_file" 2>&1
+          status=$?
+          set -e
+
+          cat "$log_file"
+
+          if [ "$status" -eq 0 ]; then
+            echo "Claude warmup finished successfully."
+            exit 0
+          fi
+
+          if grep -Eiq "expired|unauthorized|invalid token|authentication|auth failed|login required|not logged in" "$log_file"; then
+            echo "The Claude OAuth token looks invalid or expired."
+            echo "Run 'claude setup-token' again and update the CLAUDE_OAUTH_TOKEN secret."
+            exit 1
+          fi
+
+          if grep -Eiq "rate.?limit|usage limit|too many requests" "$log_file"; then
+            echo "Claude reported a usage limit. The request still reached Claude, so treating this as a completed warmup."
+            exit 0
+          fi
+
+          echo "Claude warmup failed for an unexpected reason."
+          exit "$status"
