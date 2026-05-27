@@ -2,8 +2,9 @@ name: Claude Warmup
 
 on:
   schedule:
-    # GitHub cron is UTC. This is 7:00 AM Korea Standard Time, Monday-Friday.
-    - cron: "0 22 * * 0-4"
+    # GitHub cron is UTC. This is 7:07 AM Korea Standard Time, Monday-Friday.
+    # Off-the-hour minute (:07) avoids the top-of-hour scheduling stampede.
+    - cron: "7 22 * * 0-4"
   workflow_dispatch: {}
 
 concurrency:
