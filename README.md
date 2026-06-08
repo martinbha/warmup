@@ -1,208 +1,166 @@
 # Claude Warmup
 
-This repository runs a tiny Claude Code request on a schedule.
+This repository gives you two ways to run a tiny Claude Code request on a schedule:
 
-The goal is to touch Claude Code before you begin working, so your five-hour usage window starts at a time you choose instead of at the moment you first sit down. The workflow sends one small Haiku prompt and exits. It does not clone your projects, run tools, or keep a Claude session.
+1. **GitHub Actions**: GitHub runs the warmup for you.
+2. **Ubuntu cron**: your own Ubuntu server runs the warmup from a local `.env` file.
 
-## What is included
-
-The repository has one workflow:
-
-```text
-.github/workflows/claude-warmup.yml
-```
-
-It does three things:
-
-1. Confirms that the `CLAUDE_OAUTH_TOKEN` GitHub secret exists.
-2. Installs the latest Claude Code CLI on the GitHub runner.
-3. Runs a tiny prompt with Haiku:
+Both paths do the same essential thing: send one small Claude Code prompt with Haiku and no session persistence.
 
 ```bash
 claude -p "Reply with exactly: ok" --model haiku --no-session-persistence
 ```
 
-If Claude returns a normal response, the workflow succeeds. If Claude reports a usage or rate limit, the workflow also exits successfully because the request still reached Claude. If authentication fails, the workflow fails and tells you to refresh the token.
+The goal is to touch Claude Code before you begin working, so the usage window starts at a time you choose instead of at the moment you first sit down.
 
-## Default schedule
-
-The workflow currently runs at:
+## Repository Layout
 
 ```text
-0 21 * * 0-4
+.github/workflows/claude-warmup.yml
+.env.example
+docs/ubuntu-cron.md
+scripts/claude-warmup.sh
 ```
 
-GitHub Actions schedules are written in UTC. That default means:
+Use the GitHub workflow if you want GitHub-hosted scheduling. Use the Ubuntu cron workflow if you want the warmup to run from a server you control.
+
+## Option 1: GitHub Actions
+
+The GitHub workflow is configured here:
 
 ```text
-6:00 AM Asia/Seoul, Monday-Friday
+.github/workflows/claude-warmup.yml
 ```
 
-The UTC day is the previous evening, so the cron expression uses Sunday through Thursday.
+It runs Monday through Friday at 7:00 AM Korea Standard Time:
 
-## Create the Claude token
+```yaml
+- cron: "0 22 * * 0-4"
+```
 
-On your Mac, use a terminal where Claude Code is already installed:
+GitHub schedules are UTC, so `22:00 UTC` Sunday through Thursday maps to `7:00 AM KST` Monday through Friday.
+
+### GitHub Setup
+
+Create a Claude OAuth token on a machine where Claude Code is installed:
 
 ```bash
 claude setup-token
 ```
 
-Claude will open an OAuth flow in the browser. When it finishes, it prints a token. Copy the full token. It usually starts with:
+Copy the token. It usually begins with:
 
 ```text
 sk-ant-oat01-
 ```
 
-Keep this token private. Anyone with it may be able to use your Claude Code subscription.
-
-## Add the token to GitHub
-
-From this repository, you can add the secret with GitHub CLI:
+Add it as a GitHub Actions repository secret:
 
 ```bash
 gh secret set CLAUDE_OAUTH_TOKEN
 ```
 
-Paste the token when prompted.
+Or add it in GitHub under:
 
-You can also add it in the GitHub web UI:
+```text
+Settings > Secrets and variables > Actions > New repository secret
+```
 
-1. Open the repository on GitHub.
-2. Go to `Settings`.
-3. Go to `Secrets and variables`.
-4. Choose `Actions`.
-5. Click `New repository secret`.
-6. Use this exact name:
+Use this exact secret name:
 
 ```text
 CLAUDE_OAUTH_TOKEN
 ```
 
-7. Paste the token as the value.
-8. Save the secret.
+### Test The Workflow
 
-## Push and enable the workflow
-
-Commit and push this repository to GitHub:
-
-```bash
-git add README.md .github/workflows/claude-warmup.yml
-git commit -m "Add Claude warmup workflow"
-git push
-```
-
-Then turn on GitHub Actions if needed:
-
-1. Open the repository on GitHub.
-2. Select the `Actions` tab.
-3. If GitHub asks whether to enable workflows, enable them.
-4. Open the `Claude Warmup` workflow.
-
-GitHub scheduled workflows only run from the default branch, so make sure this file is pushed to the branch GitHub treats as default.
-
-## Run a manual test
-
-After the secret is set, trigger the workflow manually:
+Push the workflow to GitHub, then trigger it manually:
 
 ```bash
 gh workflow run claude-warmup.yml
 ```
 
-Then inspect the latest run:
+Check the logs:
 
 ```bash
 gh run list --workflow claude-warmup.yml
 gh run view --log
 ```
 
-In the logs, look for:
+A successful run should say:
 
 ```text
 Claude warmup finished successfully.
 ```
 
-or:
+If Claude reports a usage limit, the workflow treats that as a completed warmup because the request reached Claude.
+
+## Option 2: Ubuntu Cron
+
+The Ubuntu cron setup uses:
 
 ```text
-Claude reported a usage limit.
+scripts/claude-warmup.sh
+.env.example
 ```
 
-Either one means the workflow reached Claude.
+This path is useful when you want the warmup to run from a server instead of GitHub Actions. The server stores the Claude token in a local `.env` file.
 
-## Change the time
-
-Edit the `cron` line in `.github/workflows/claude-warmup.yml`:
-
-```yaml
-- cron: "0 21 * * 0-4"
-```
-
-The first number is the minute. The second number is the hour in UTC.
-
-Useful examples:
-
-| Desired local time | Cron |
-| --- | --- |
-| 6:00 AM Asia/Seoul, weekdays | `0 21 * * 0-4` |
-| 7:00 AM Asia/Seoul, weekdays | `0 22 * * 0-4` |
-| 8:00 AM Asia/Seoul, weekdays | `0 23 * * 0-4` |
-| 6:00 AM US Eastern during daylight time, weekdays | `0 10 * * 1-5` |
-| 6:00 AM US Pacific during daylight time, weekdays | `0 13 * * 1-5` |
-
-Pick a time that is a few hours before you usually begin using Claude Code. For example, if you normally start at 9:00 AM and often hit limits before lunch, a 6:00 AM warmup may make the reset land closer to late morning.
-
-## Confirm it is working
-
-The next time the scheduled workflow runs:
-
-1. Open Claude Code locally after the warmup time.
-2. Run `/usage`.
-3. Check whether the reset time lines up with the workflow run.
-
-If the reset time is not what you expected, adjust the cron time and test again.
-
-## Troubleshooting
-
-### The workflow says the secret is missing
-
-Create a repository secret named exactly:
+Read the full Ubuntu guide here:
 
 ```text
-CLAUDE_OAUTH_TOKEN
+docs/ubuntu-cron.md
 ```
 
-Secret names are case-sensitive in practice when referenced from workflows, so use the exact spelling.
-
-### The token is invalid or expired
-
-Generate a new token:
+The short version:
 
 ```bash
-claude setup-token
+cp .env.example .env
+nano .env
+chmod 600 .env
+chmod +x scripts/claude-warmup.sh
+./scripts/claude-warmup.sh
 ```
 
-Then update the GitHub secret:
+Then add a cron entry:
+
+```cron
+TZ=Asia/Seoul
+0 7 * * 1-5 /home/YOUR_USER/tools/warmup/scripts/claude-warmup.sh >> /home/YOUR_USER/tools/warmup/logs/cron.log 2>&1
+```
+
+Replace `YOUR_USER` with your Ubuntu username.
+
+## .env Template
+
+For Ubuntu cron, copy `.env.example` to `.env` and fill in the token:
+
+```dotenv
+CLAUDE_OAUTH_TOKEN=sk-ant-oat01-your-real-token-here
+CLAUDE_WARMUP_PROMPT="Reply with exactly: ok"
+CLAUDE_WARMUP_MODEL=haiku
+```
+
+The real `.env` file is ignored by Git.
+
+## Verify Timing
+
+After either scheduled path runs, open Claude Code and check:
+
+```text
+/usage
+```
+
+Compare the displayed reset time with the scheduled warmup time. If it does not line up the way you expect, adjust the schedule and test again.
+
+## Security
+
+Treat the Claude OAuth token like a password.
+
+For GitHub Actions, store it only as a repository secret. For Ubuntu cron, store it only in `.env` and keep that file private:
 
 ```bash
-gh secret set CLAUDE_OAUTH_TOKEN
+chmod 600 .env
 ```
 
-### The schedule never runs
-
-Check these things:
-
-- The workflow file is on the repository default branch.
-- GitHub Actions are enabled for the repository.
-- The repository is not archived.
-- The cron time is UTC, not local time.
-
-### Manual runs work but scheduled runs feel late
-
-GitHub scheduled workflows are not guaranteed to start at the exact minute. They can be delayed, especially at busy times. If the exact reset minute matters, choose a schedule with some buffer.
-
-## Security notes
-
-The OAuth token should only live in GitHub Actions secrets or another trusted secret store. Do not commit it to the repository, paste it into issues, or print it in workflow logs.
-
-If you stop using this repository, delete the `CLAUDE_OAUTH_TOKEN` secret from GitHub.
+Do not commit `.env`, paste the token into logs, or share the token in chat.
